@@ -29,14 +29,19 @@ const MODEL_NAME = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const App: React.FC = () => {
   const [status, setStatus] = useState<SessionStatus>(SessionStatus.IDLE);
   const [transcriptions, setTranscriptions] = useState<TranscriptionEntry[]>([]);
+  const [liveSubtitle, setLiveSubtitle] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [isMeetingMode, setIsMeetingMode] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
+  const [outputAnalyserNode, setOutputAnalyserNode] = useState<AnalyserNode | null>(null);
   const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
   const [currentPatientName, setCurrentPatientName] = useState('');
+  
+  // Persona Image State
+  const [personaImageUrl, setPersonaImageUrl] = useState<string>("https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=1000");
 
   const statusRef = useRef<SessionStatus>(SessionStatus.IDLE);
   const transcriptionsRef = useRef<TranscriptionEntry[]>([]);
@@ -76,7 +81,9 @@ const App: React.FC = () => {
     
     setStatus(SessionStatus.IDLE);
     setAnalyserNode(null);
+    setOutputAnalyserNode(null);
     setIsThinking(false);
+    setLiveSubtitle('');
     
     if (scriptProcessorRef.current) {
       scriptProcessorRef.current.disconnect();
@@ -116,6 +123,10 @@ const App: React.FC = () => {
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         
+        if (outputAnalyserNode) {
+          source.connect(outputAnalyserNode);
+        }
+        
         source.connect(ctx.destination);
         if (recordingMixerRef.current) {
           source.connect(recordingMixerRef.current);
@@ -134,7 +145,9 @@ const App: React.FC = () => {
       currentInputText.current += message.serverContent.inputTranscription.text;
     }
     if (message.serverContent?.outputTranscription) {
-      currentOutputText.current += message.serverContent.outputTranscription.text;
+      const text = message.serverContent.outputTranscription.text;
+      currentOutputText.current += text;
+      setLiveSubtitle(currentOutputText.current);
     }
 
     if (message.serverContent?.turnComplete) {
@@ -153,6 +166,7 @@ const App: React.FC = () => {
       }
       currentInputText.current = '';
       currentOutputText.current = '';
+      setTimeout(() => setLiveSubtitle(''), 2000); 
     }
 
     if (message.serverContent?.interrupted) {
@@ -160,8 +174,9 @@ const App: React.FC = () => {
       sourcesRef.current.clear();
       nextStartTimeRef.current = 0;
       setIsThinking(false);
+      setLiveSubtitle('');
     }
-  }, []);
+  }, [outputAnalyserNode]);
 
   const startSession = async (patientName: string) => {
     await cleanup();
@@ -173,6 +188,10 @@ const App: React.FC = () => {
       
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       masterAudioContextRef.current = ctx;
+
+      const outAnalyser = ctx.createAnalyser();
+      outAnalyser.fftSize = 256;
+      setOutputAnalyserNode(outAnalyser);
 
       const mixer = ctx.createMediaStreamDestination();
       recordingMixerRef.current = mixer;
@@ -207,10 +226,10 @@ const App: React.FC = () => {
       }
       activeStreamRef.current = finalInputSourceStream;
 
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      ctx.createMediaStreamSource(finalInputSourceStream).connect(analyser);
-      setAnalyserNode(analyser);
+      const inputAnalyser = ctx.createAnalyser();
+      inputAnalyser.fftSize = 256;
+      ctx.createMediaStreamSource(finalInputSourceStream).connect(inputAnalyser);
+      setAnalyserNode(inputAnalyser);
 
       const sessionPromise = ai.live.connect({
         model: MODEL_NAME,
@@ -318,6 +337,7 @@ const App: React.FC = () => {
         <InterpreterDashboard 
           status={status}
           transcriptions={transcriptions}
+          liveSubtitle={liveSubtitle}
           onToggleSession={handleToggleSession}
           onTogglePause={togglePause}
           onOpenInvite={() => setIsInviteOpen(true)}
@@ -326,7 +346,10 @@ const App: React.FC = () => {
           onDownloadTranscript={() => {}} 
           savedSessions={savedSessions}
           analyser={analyserNode}
+          outputAnalyser={outputAnalyserNode}
           currentPatientName={currentPatientName}
+          personaImageUrl={personaImageUrl}
+          onPersonaUpdate={(url) => setPersonaImageUrl(url)}
         />
       </main>
       
