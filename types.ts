@@ -25,6 +25,7 @@ export interface TranscriptionEntry {
 
 export interface SavedSession {
   id: string;
+  patientName: string;
   timestamp: number;
   transcriptions: TranscriptionEntry[];
   audioBlob?: Blob;

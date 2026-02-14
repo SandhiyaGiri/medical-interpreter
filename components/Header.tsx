@@ -1,25 +1,59 @@
 
 import React from 'react';
+import { SessionStatus } from '../types';
 
-const Header: React.FC = () => {
+interface HeaderProps {
+  status: SessionStatus;
+  onToggleSession: () => void;
+}
+
+const Header: React.FC<HeaderProps> = ({ status, onToggleSession }) => {
+  const isInactive = status === SessionStatus.IDLE || status === SessionStatus.ERROR;
+  const isConnecting = status === SessionStatus.CONNECTING;
+
   return (
-    <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
-      <div className="flex items-center gap-2">
-        <div className="bg-blue-600 p-2 rounded-lg">
+    <header className="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="bg-blue-600 p-2.5 rounded-xl shadow-lg shadow-blue-200">
           <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
           </svg>
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">MedInterpret Live</h1>
-          <p className="text-xs text-slate-500 font-medium">REAL-TIME MEDICAL TRANSLATION</p>
+          <h1 className="text-xl font-black text-slate-900 tracking-tight">MedInterpret Live</h1>
+          <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Clinical Interpretation Suite</p>
         </div>
       </div>
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-100">
-          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-          <span className="text-sm font-semibold">Gemini 2.5 Active</span>
+
+      <div className="flex items-center gap-6">
+        <div className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-slate-50 text-slate-500 rounded-full border border-slate-100">
+          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+          <span className="text-[11px] font-bold uppercase tracking-wider">Gemini 2.5 Active</span>
         </div>
+
+        <button
+          onClick={onToggleSession}
+          disabled={isConnecting}
+          className={`flex items-center gap-3 px-8 py-3 rounded-2xl font-black transition-all shadow-xl hover:scale-105 active:scale-95 uppercase tracking-widest text-[11px] disabled:opacity-50 disabled:scale-100 ${
+            isInactive
+              ? 'bg-blue-600 text-white shadow-blue-500/30 ring-4 ring-blue-50'
+              : 'bg-rose-500 text-white shadow-rose-500/30 ring-4 ring-rose-50'
+          }`}
+        >
+          {isConnecting ? (
+            <>
+              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Connecting...
+            </>
+          ) : isInactive ? (
+            'Start Session'
+          ) : (
+            'End Session'
+          )}
+        </button>
       </div>
     </header>
   );

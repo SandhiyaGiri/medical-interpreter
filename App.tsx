@@ -4,20 +4,23 @@ import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
 import Header from './components/Header';
 import InterpreterDashboard from './components/InterpreterDashboard';
 import MeetingModal from './components/MeetingModal';
+import PatientOnboardingModal from './components/PatientOnboardingModal';
+import AudioVisualizer from './components/AudioVisualizer';
 import { SessionStatus, TranscriptionEntry, SavedSession } from './types';
 import { createBlob, decode, decodeAudioData } from './utils/audio-helpers';
 import { saveSession, getAllSessions } from './utils/db';
 
 const SYSTEM_INSTRUCTION = `You are an elite, real-time medical interpreter.
-Objective: Interpret between a Doctor (English) and a Patient (Indian Language).
+Objective: Interpret between a Doctor (English) and a Patient (speaking Tamil, Telugu, or Hindi).
 
-SCENARIO: You are connected to a Google Meet call. You will hear both speakers.
-1. CONCISE TRANSLATION: Do not summarize. Translate exactly what is said.
-2. AUTO-IDENTIFICATION:
-   - English detected -> Translate to the Patient's native language.
-   - Indian Language detected -> Translate to Clinical English.
-3. NO FILLERS: Skip "He said", "She says".
-4. MEDICAL TERMS: Be precise.
+BEHAVIOR:
+1. PASSIVE START: Do not speak first. Wait for the patient or doctor to begin speaking.
+2. LANGUAGE DETECTION: Automatically identify if the patient is speaking Tamil, Telugu, or Hindi.
+3. BI-DIRECTIONAL TRANSLATION:
+   - Patient speaks (Indian Language) -> Translate immediately to Clinical English for the Doctor.
+   - Doctor speaks (English) -> Translate immediately to the Patient's detected Indian language.
+4. ACCURACY: Translate exactly what is said. Do not summarize or add pleasantries like "The doctor says...".
+5. CLINICAL FOCUS: Use precise medical terminology in both languages.
 
 Response modality is AUDIO. Your transcription must match your spoken output exactly.`;
 
@@ -31,28 +34,29 @@ const App: React.FC = () => {
   const [isMeetingMode, setIsMeetingMode] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
+  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
+  const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
+  const [currentPatientName, setCurrentPatientName] = useState('');
 
-  // Refs to avoid stale closures in callbacks
   const statusRef = useRef<SessionStatus>(SessionStatus.IDLE);
   const transcriptionsRef = useRef<TranscriptionEntry[]>([]);
+  const patientNameRef = useRef<string>('');
   
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { transcriptionsRef.current = transcriptions; }, [transcriptions]);
+  useEffect(() => { patientNameRef.current = currentPatientName; }, [currentPatientName]);
 
-  // Audio & Session Refs
   const masterAudioContextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const activeStreamRef = useRef<MediaStream | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   
-  // Recording Refs
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingMixerRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const startTimeRef = useRef<number>(0);
 
-  // Buffers
   const currentInputText = useRef('');
   const currentOutputText = useRef('');
 
@@ -71,6 +75,7 @@ const App: React.FC = () => {
     }
     
     setStatus(SessionStatus.IDLE);
+    setAnalyserNode(null);
     setIsThinking(false);
     
     if (scriptProcessorRef.current) {
@@ -96,17 +101,14 @@ const App: React.FC = () => {
   }, []);
 
   const handleMessage = useCallback(async (message: LiveServerMessage) => {
-    // Check ref for current status to avoid stale closure issues
     if (statusRef.current === SessionStatus.PAUSED) return;
 
-    // Process Audio
     const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
     if (audioData && masterAudioContextRef.current) {
       setIsThinking(false);
       const ctx = masterAudioContextRef.current;
       
       if (ctx.state === 'suspended') await ctx.resume();
-
       nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
       
       try {
@@ -114,7 +116,6 @@ const App: React.FC = () => {
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         
-        // Routing: AI must go to speakers AND recording mixer
         source.connect(ctx.destination);
         if (recordingMixerRef.current) {
           source.connect(recordingMixerRef.current);
@@ -129,7 +130,6 @@ const App: React.FC = () => {
       }
     }
 
-    // Transcriptions
     if (message.serverContent?.inputTranscription) {
       currentInputText.current += message.serverContent.inputTranscription.text;
     }
@@ -163,8 +163,9 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const startSession = async () => {
+  const startSession = async (patientName: string) => {
     await cleanup();
+    setCurrentPatientName(patientName);
     try {
       setStatus(SessionStatus.CONNECTING);
       setTranscriptions([]);
@@ -185,20 +186,15 @@ const App: React.FC = () => {
             video: true,
             audio: { echoCancellation: true, noiseSuppression: true }
           });
-          
           const micSourceNode = ctx.createMediaStreamSource(micStream);
           const tabSourceNode = ctx.createMediaStreamSource(displayStream);
-          
           const internalBus = ctx.createMediaStreamDestination();
           micSourceNode.connect(internalBus);
           tabSourceNode.connect(internalBus);
-          
           micSourceNode.connect(mixer);
           tabSourceNode.connect(mixer);
-          
           finalInputSourceStream = internalBus.stream;
         } catch (e) {
-          console.warn("Meeting capture failed.");
           setIsMeetingMode(false);
           const micSourceNode = ctx.createMediaStreamSource(micStream);
           micSourceNode.connect(mixer);
@@ -210,6 +206,11 @@ const App: React.FC = () => {
         finalInputSourceStream = micStream;
       }
       activeStreamRef.current = finalInputSourceStream;
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      ctx.createMediaStreamSource(finalInputSourceStream).connect(analyser);
+      setAnalyserNode(analyser);
 
       const sessionPromise = ai.live.connect({
         model: MODEL_NAME,
@@ -224,11 +225,11 @@ const App: React.FC = () => {
           onopen: () => {
             setStatus(SessionStatus.ACTIVE);
             startTimeRef.current = Date.now();
+            
             const sourceNode = ctx.createMediaStreamSource(finalInputSourceStream);
             const processor = ctx.createScriptProcessor(4096, 1, 1);
             
             processor.onaudioprocess = (e) => {
-              // Only stream and record if active
               if (statusRef.current === SessionStatus.ACTIVE) {
                 const inputData = e.inputBuffer.getChannelData(0);
                 sessionPromise.then(s => s.sendRealtimeInput({ media: createBlob(inputData) }));
@@ -271,6 +272,7 @@ const App: React.FC = () => {
       
       const newSession: SavedSession = {
         id: crypto.randomUUID(),
+        patientName: patientNameRef.current || 'Anonymous Patient',
         timestamp: Date.now(),
         transcriptions: [...transcriptionsRef.current],
         audioBlob: blob,
@@ -281,7 +283,7 @@ const App: React.FC = () => {
       await saveSession(newSession);
       loadSessions();
     };
-    recorder.start(1000);
+    recorder.start(100);
     recorderRef.current = recorder;
     setIsRecording(true);
   };
@@ -289,36 +291,64 @@ const App: React.FC = () => {
   const togglePause = () => {
     if (status === SessionStatus.ACTIVE) {
       setStatus(SessionStatus.PAUSED);
-      if (recorderRef.current && recorderRef.current.state === 'recording') recorderRef.current.pause();
+      if (recorderRef.current && recorderRef.current.state === 'recording') {
+        recorderRef.current.pause();
+      }
     } else if (status === SessionStatus.PAUSED) {
       setStatus(SessionStatus.ACTIVE);
-      if (recorderRef.current && recorderRef.current.state === 'paused') recorderRef.current.resume();
+      if (recorderRef.current && recorderRef.current.state === 'paused') {
+        recorderRef.current.resume();
+      }
       masterAudioContextRef.current?.resume();
     }
   };
 
-  const toggleSession = () => (status === SessionStatus.IDLE || status === SessionStatus.ERROR) ? startSession() : cleanup();
+  const handleToggleSession = () => {
+    if (status === SessionStatus.IDLE || status === SessionStatus.ERROR) {
+      setIsPatientModalOpen(true);
+    } else {
+      cleanup();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans antialiased">
-      <Header />
-      <main className="flex-1 overflow-y-auto">
+      <Header status={status} onToggleSession={handleToggleSession} />
+      <main className="flex-1 overflow-y-auto pb-48">
         <InterpreterDashboard 
           status={status}
           transcriptions={transcriptions}
-          onToggleSession={toggleSession}
+          onToggleSession={handleToggleSession}
           onTogglePause={togglePause}
           onOpenInvite={() => setIsInviteOpen(true)}
           isModelThinking={isThinking}
           isRecording={isRecording}
           onDownloadTranscript={() => {}} 
           savedSessions={savedSessions}
+          analyser={analyserNode}
+          currentPatientName={currentPatientName}
         />
       </main>
       
-      <MeetingModal isOpen={isInviteOpen} onClose={() => setIsInviteOpen(false)} isMeetingMode={isMeetingMode} onToggleMeetingMode={() => setIsMeetingMode(!isMeetingMode)} />
+      <MeetingModal 
+        isOpen={isInviteOpen} 
+        onClose={() => setIsInviteOpen(false)} 
+        isMeetingMode={isMeetingMode} 
+        onToggleMeetingMode={() => setIsMeetingMode(!isMeetingMode)} 
+      />
 
-      <footer className="bg-white border-t border-slate-200 px-8 py-4 flex items-center justify-between text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] sticky bottom-0 z-40">
+      <PatientOnboardingModal 
+        isOpen={isPatientModalOpen}
+        onClose={() => setIsPatientModalOpen(false)}
+        onConfirm={(name) => {
+          setIsPatientModalOpen(false);
+          startSession(name);
+        }}
+      />
+
+      <AudioVisualizer analyser={analyserNode} isActive={status === SessionStatus.ACTIVE} />
+
+      <footer className="bg-white border-t border-slate-200 px-8 py-4 flex items-center justify-between text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] sticky bottom-0 z-50">
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-3">
             <div className={`w-2.5 h-2.5 rounded-full ${status === SessionStatus.ACTIVE ? 'bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]' : status === SessionStatus.PAUSED ? 'bg-amber-500' : 'bg-slate-300'}`}></div>

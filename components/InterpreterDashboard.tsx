@@ -12,6 +12,8 @@ interface InterpreterDashboardProps {
   isRecording: boolean;
   onDownloadTranscript: () => void;
   savedSessions: SavedSession[];
+  analyser: AnalyserNode | null;
+  currentPatientName?: string;
 }
 
 const InterpreterDashboard: React.FC<InterpreterDashboardProps> = ({
@@ -23,7 +25,9 @@ const InterpreterDashboard: React.FC<InterpreterDashboardProps> = ({
   isModelThinking,
   isRecording,
   onDownloadTranscript,
-  savedSessions
+  savedSessions,
+  analyser,
+  currentPatientName
 }) => {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<'live' | 'history'>('live');
@@ -45,16 +49,15 @@ const InterpreterDashboard: React.FC<InterpreterDashboardProps> = ({
   const downloadEnglishTranscript = (session: SavedSession) => {
     const text = session.transcriptions.map(t => {
       const timestamp = new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      // English-only: For doctor, use sourceText. For patient, use translatedText.
       const englishContent = t.role === 'doctor' ? t.sourceText : t.translatedText;
       return `[${timestamp}] ${t.role.toUpperCase()}: ${englishContent}`;
     }).join('\n\n');
 
-    const blob = new Blob([`CONSULTATION SUMMARY (ENGLISH)\nDate: ${new Date(session.timestamp).toLocaleString()}\n\n${text}`], { type: 'text/plain' });
+    const blob = new Blob([`CONSULTATION SUMMARY (ENGLISH)\nPatient: ${session.patientName}\nDate: ${new Date(session.timestamp).toLocaleString()}\n\n${text}`], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `medical-summary-${session.id.substring(0, 8)}.txt`;
+    a.download = `medical-summary-${session.patientName.replace(/\s+/g, '-').toLowerCase()}-${session.id.substring(0, 8)}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -63,7 +66,7 @@ const InterpreterDashboard: React.FC<InterpreterDashboardProps> = ({
     if (!session.audioUrl) return;
     const a = document.createElement('a');
     a.href = session.audioUrl;
-    a.download = `session-audio-${session.id.substring(0, 8)}.webm`;
+    a.download = `audio-${session.patientName.replace(/\s+/g, '-').toLowerCase()}-${session.id.substring(0, 8)}.webm`;
     a.click();
   };
 
@@ -110,7 +113,6 @@ const InterpreterDashboard: React.FC<InterpreterDashboardProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto w-full px-4 py-8">
-      {/* Navigation */}
       <div className="flex gap-4 mb-8">
         <button 
           onClick={() => { setActiveTab('live'); setSelectedSession(null); }}
@@ -130,12 +132,14 @@ const InterpreterDashboard: React.FC<InterpreterDashboardProps> = ({
         <div className="animate-in fade-in duration-300">
           <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
             <div>
-              <h2 className="text-3xl font-black text-slate-900 tracking-tight">Active Consultation</h2>
+              <h2 className="text-3xl font-black text-slate-900 tracking-tight">
+                {currentPatientName ? `Consultation: ${currentPatientName}` : 'Active Consultation'}
+              </h2>
               <p className="text-slate-500 font-medium text-sm mt-1">Real-time medical translation in progress.</p>
             </div>
             <button 
               onClick={onOpenInvite}
-              className="px-6 py-3 bg-white border border-slate-200 text-slate-700 rounded-full font-bold text-sm hover:bg-slate-50 transition-all flex items-center gap-2"
+              className="px-6 py-3 bg-white border border-slate-200 text-slate-700 rounded-full font-bold text-sm hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               GMeet Sync
@@ -147,30 +151,28 @@ const InterpreterDashboard: React.FC<InterpreterDashboardProps> = ({
               {renderTranscriptionList(transcriptions)}
             </div>
 
-            <div className="p-8 border-t border-slate-100 bg-white flex items-center justify-center gap-6">
-              <button
-                onClick={onToggleSession}
-                disabled={status === SessionStatus.CONNECTING}
-                className={`flex items-center gap-4 px-12 py-5 rounded-full font-black transition-all shadow-xl hover:scale-105 active:scale-95 uppercase tracking-widest text-sm ${
-                  status === SessionStatus.IDLE || status === SessionStatus.ERROR
-                    ? 'bg-blue-600 text-white shadow-blue-500/30'
-                    : 'bg-rose-500 text-white shadow-rose-500/30'
-                }`}
-              >
-                {status === SessionStatus.IDLE || status === SessionStatus.ERROR ? 'Start Engine' : 'End Session'}
-              </button>
-
-              {(status === SessionStatus.ACTIVE || status === SessionStatus.PAUSED) && (
+            {(status === SessionStatus.ACTIVE || status === SessionStatus.PAUSED) && (
+              <div className="p-8 border-t border-slate-100 bg-white flex items-center justify-center">
                 <button
                   onClick={onTogglePause}
-                  className={`flex items-center gap-4 px-10 py-5 rounded-full font-black transition-all shadow-xl hover:scale-105 active:scale-95 uppercase tracking-widest text-sm ${
+                  className={`flex items-center gap-4 px-12 py-5 rounded-full font-black transition-all shadow-xl hover:scale-105 active:scale-95 uppercase tracking-widest text-sm ${
                     status === SessionStatus.PAUSED ? 'bg-emerald-500 text-white shadow-emerald-500/20' : 'bg-amber-500 text-white shadow-amber-500/20'
                   }`}
                 >
-                  {status === SessionStatus.PAUSED ? 'Resume' : 'Pause'}
+                  {status === SessionStatus.PAUSED ? (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      Resume Interpretation
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      Pause Interaction
+                    </>
+                  )}
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -204,7 +206,7 @@ const InterpreterDashboard: React.FC<InterpreterDashboardProps> = ({
               <div className="bg-white rounded-[3rem] shadow-xl border border-slate-200 overflow-hidden flex flex-col h-[750px]">
                 <div className="p-8 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                   <div>
-                    <h3 className="font-black text-slate-900 text-lg">Dialogue Inspector</h3>
+                    <h3 className="font-black text-slate-900 text-lg">Record: {selectedSession.patientName}</h3>
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{new Date(selectedSession.timestamp).toLocaleString()}</p>
                   </div>
                   {selectedSession.audioUrl && (
@@ -235,7 +237,7 @@ const InterpreterDashboard: React.FC<InterpreterDashboardProps> = ({
                       </div>
                       <span className="text-slate-400 text-xs font-bold">{formatDuration(session.duration)}</span>
                     </div>
-                    <h4 className="text-xl font-black text-slate-900 mb-2">Patient Consult</h4>
+                    <h4 className="text-xl font-black text-slate-900 mb-2">{session.patientName}</h4>
                     <p className="text-sm text-slate-500 mb-8">{session.transcriptions.length} Interpretation cycles</p>
                     <div className="flex items-center gap-2 text-blue-600 font-black text-[10px] uppercase tracking-widest group-hover:gap-4 transition-all">
                       Inspect Record
