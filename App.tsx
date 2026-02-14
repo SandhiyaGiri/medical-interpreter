@@ -2,6 +2,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
 import Header from './components/Header';
+import LandingPage from './components/LandingPage';
 import InterpreterDashboard from './components/InterpreterDashboard';
 import MeetingModal from './components/MeetingModal';
 import PatientOnboardingModal from './components/PatientOnboardingModal';
@@ -28,6 +29,7 @@ const MODEL_NAME = 'gemini-2.5-flash-native-audio-preview-12-2025';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<SessionStatus>(SessionStatus.IDLE);
+  const [showHistory, setShowHistory] = useState(false);
   const [transcriptions, setTranscriptions] = useState<TranscriptionEntry[]>([]);
   const [liveSubtitle, setLiveSubtitle] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -40,8 +42,7 @@ const App: React.FC = () => {
   const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
   const [currentPatientName, setCurrentPatientName] = useState('');
   
-  // Persona Image State
-  const [personaImageUrl, setPersonaImageUrl] = useState<string>("https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=1000");
+  const [personaImageUrl, setPersonaImageUrl] = useState<string>("https://images.unsplash.com/photo-1559839734-2b71f15360ee?auto=format&fit=crop&q=80&w=1000");
 
   const statusRef = useRef<SessionStatus>(SessionStatus.IDLE);
   const transcriptionsRef = useRef<TranscriptionEntry[]>([]);
@@ -84,6 +85,7 @@ const App: React.FC = () => {
     setOutputAnalyserNode(null);
     setIsThinking(false);
     setLiveSubtitle('');
+    setShowHistory(false);
     
     if (scriptProcessorRef.current) {
       scriptProcessorRef.current.disconnect();
@@ -183,6 +185,7 @@ const App: React.FC = () => {
     setCurrentPatientName(patientName);
     try {
       setStatus(SessionStatus.CONNECTING);
+      setShowHistory(false);
       setTranscriptions([]);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
@@ -280,7 +283,7 @@ const App: React.FC = () => {
     chunksRef.current = [];
     const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
     recorder.ondataavailable = (e) => {
-      if (e.data.size > 0 && statusRef.current === SessionStatus.ACTIVE) {
+      if (e.data.size > 0) {
         chunksRef.current.push(e.data);
       }
     };
@@ -332,25 +335,41 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans antialiased">
-      <Header status={status} onToggleSession={handleToggleSession} />
-      <main className="flex-1 overflow-y-auto pb-48">
-        <InterpreterDashboard 
-          status={status}
-          transcriptions={transcriptions}
-          liveSubtitle={liveSubtitle}
-          onToggleSession={handleToggleSession}
-          onTogglePause={togglePause}
-          onOpenInvite={() => setIsInviteOpen(true)}
-          isModelThinking={isThinking}
-          isRecording={isRecording}
-          onDownloadTranscript={() => {}} 
-          savedSessions={savedSessions}
-          analyser={analyserNode}
-          outputAnalyser={outputAnalyserNode}
-          currentPatientName={currentPatientName}
-          personaImageUrl={personaImageUrl}
-          onPersonaUpdate={(url) => setPersonaImageUrl(url)}
-        />
+      <Header 
+        status={status} 
+        onToggleSession={handleToggleSession} 
+        onGoHome={cleanup}
+        onShowHistory={() => { setShowHistory(true); setStatus(SessionStatus.IDLE); }}
+      />
+      
+      <main className="flex-1 overflow-y-auto">
+        {(status === SessionStatus.IDLE || status === SessionStatus.ERROR) && !showHistory ? (
+          <LandingPage 
+            onStartSession={() => setIsPatientModalOpen(true)} 
+            onViewHistory={() => setShowHistory(true)}
+          />
+        ) : (
+          <InterpreterDashboard 
+            status={status}
+            initialTab={showHistory ? 'history' : 'live'}
+            transcriptions={transcriptions}
+            liveSubtitle={liveSubtitle}
+            onToggleSession={handleToggleSession}
+            onTogglePause={togglePause}
+            onOpenInvite={() => setIsInviteOpen(true)}
+            isModelThinking={isThinking}
+            isRecording={isRecording}
+            onDownloadTranscript={() => {}} 
+            savedSessions={savedSessions}
+            analyser={analyserNode}
+            outputAnalyser={outputAnalyserNode}
+            currentPatientName={currentPatientName}
+            personaImageUrl={personaImageUrl}
+            onPersonaUpdate={(url) => setPersonaImageUrl(url)}
+            onCloseSession={cleanup}
+            onGoHome={() => { setShowHistory(false); cleanup(); }}
+          />
+        )}
       </main>
       
       <MeetingModal 
@@ -380,7 +399,7 @@ const App: React.FC = () => {
           {isRecording && <div className="text-rose-500 font-bold flex items-center gap-2"><div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping"></div> Recording Managed</div>}
         </div>
         <div className="flex gap-6 items-center">
-          <span>{savedSessions.length} Archives</span>
+          <button onClick={() => { setShowHistory(true); setStatus(SessionStatus.IDLE); }} className="hover:text-blue-500 transition-colors uppercase tracking-[0.2em]">{savedSessions.length} Archives</button>
           <span className="text-slate-300">|</span>
           <span>HIPAA COMPLIANT STORAGE</span>
         </div>

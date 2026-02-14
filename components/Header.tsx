@@ -5,31 +5,45 @@ import { SessionStatus } from '../types';
 interface HeaderProps {
   status: SessionStatus;
   onToggleSession: () => void;
+  onGoHome?: () => void;
+  onShowHistory?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ status, onToggleSession }) => {
+const Header: React.FC<HeaderProps> = ({ status, onToggleSession, onGoHome, onShowHistory }) => {
   const isInactive = status === SessionStatus.IDLE || status === SessionStatus.ERROR;
   const isConnecting = status === SessionStatus.CONNECTING;
 
   return (
     <header className="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className="bg-blue-600 p-2.5 rounded-xl shadow-lg shadow-blue-200">
-          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-          </svg>
+      <div className="flex items-center gap-10">
+        <div className="flex items-center gap-3 cursor-pointer group" onClick={onGoHome}>
+          <div className="bg-blue-600 p-2.5 rounded-xl shadow-lg shadow-blue-200 group-hover:scale-110 transition-transform">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">MedInterpret</h1>
+            <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Clinical Bridge</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-black text-slate-900 tracking-tight">MedInterpret Live</h1>
-          <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Clinical Interpretation Suite</p>
-        </div>
+
+        {isInactive && (
+          <nav className="hidden lg:flex items-center gap-8">
+            <button onClick={onGoHome} className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-blue-600 transition-colors">Home</button>
+            <button onClick={onShowHistory} className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-blue-600 transition-colors">Archives</button>
+            <a href="#" className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-blue-600 transition-colors">HIPAA Compliance</a>
+          </nav>
+        )}
       </div>
 
       <div className="flex items-center gap-6">
-        <div className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-slate-50 text-slate-500 rounded-full border border-slate-100">
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-          <span className="text-[11px] font-bold uppercase tracking-wider">Gemini 2.5 Active</span>
-        </div>
+        {!isInactive && (
+          <div className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-blue-50 text-blue-600 rounded-full border border-blue-100">
+            <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">Live Bridge Active</span>
+          </div>
+        )}
 
         <button
           onClick={onToggleSession}
@@ -49,7 +63,7 @@ const Header: React.FC<HeaderProps> = ({ status, onToggleSession }) => {
               Connecting...
             </>
           ) : isInactive ? (
-            'Start Session'
+            'Launch Consultation'
           ) : (
             'End Session'
           )}
