@@ -1,0 +1,88 @@
+Step-by-Step Guide: Building a Headless Google Meet Bot
+This guide details how to build a server-side bot that joins Google Meet, captures audio, and interpreted it using your existing Gemini logic.
+
+Phase 1: Architecture Overview
+A "True Join" bot requires a backend server to orchestrate the browser.
+
+Backend Server: Node.js/Express.
+Browser Controller: Puppeteer + puppeteer-extra-plugin-stealth.
+Audio Capture: puppeteer-stream (to grab browser output).
+AI Engine: GoogleGenAI (Gemini 2.5).
+Phase 2: Server Setup & Dependencies
+Create a new server directory:
+bash
+mkdir gmeet-bot-server && cd gmeet-bot-server
+npm init -y
+Install core dependencies:
+bash
+npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth puppeteer-stream express @google/genai
+Install system-level libraries (if deploying on Linux/Docker): You need Chromium's dependencies (libnss3, libatk, etc.) and xvfb if running in a non-GUI environment.
+Phase 3: Bot Implementation (Boilerplate)
+Create bot.js. This script will launch the browser, bypass detection, and join the meeting.
+
+IMPORTANT
+
+Persistent Login: To avoid Google's "Sign in" block, you should log in once manually and save the session to a user_data folder.
+
+javascript
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const { getStream } = require('puppeteer-stream');
+puppeteer.use(StealthPlugin());
+async function launchBot(meetUrl) {
+  const browser = await puppeteer.launch({
+    headless: false, // Start with false to debug, then true + xvfb for production
+    args: [
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      '--autoplay-policy=no-user-gesture-required'
+    ],
+    userDataDir: './user_data' // Persists your Google login
+  });
+  const page = await browser.newPage();
+  
+  // 1. Set Permissions
+  const context = browser.defaultBrowserContext();
+  await context.overridePermissions('https://meet.google.com', ['microphone', 'camera']);
+  // 2. Navigate and Join
+  await page.goto(meetUrl);
+  
+  // Wait for "Join now" button (Selectors change often, check manually)
+  const joinButton = 'button span:contains("Join now")'; 
+  await page.waitForSelector('button');
+  await page.click('button'); // Simplified: you'll need the exact selector
+  // 3. Capture Audio Stream
+  const stream = await getStream(page, { audio: true, video: false });
+  
+  // 4. Pipe to Gemini
+  stream.on('data', (chunk) => {
+    // Process audio chunk and send to Gemini API
+    // (Similar to your current frontend media recording logic)
+  });
+}
+Phase 4: What You Have to Do (Steps)
+1. Dedicated Google Account
+Do not use your personal account. Create a "
+v-medical-interpreter@gmail.com
+" account.
+
+Disable 2FA or use an App Password.
+Log in once using the bot (set headless: false) to bypass the "First-time login" security check.
+2. Prepare the Server
+The server needs a "Virtual Display" if you want to run it headlessly on a cloud provider like AWS/GCP.
+
+Use Docker with Xvfb.
+Ensure the instance has at least 2 vCPUs and 4GB RAM.
+3. Selector Maintenance
+Google Meet changes its CSS classes weekly. You should:
+
+Use text-based selectors (e.g., "Join now") rather than classes like .VfPpkd-LgIVyb.
+Implement a "Retry" logic if the button isn't found.
+4. Interpretation Feedback
+To have the bot speak the translation back into the meeting:
+
+You must send audio out from the server into the browser's "Fake Microphone".
+This is done by launching with --use-file-for-fake-audio-capture=pipe:0 and piping PCM audio into the process.
+TIP
+
+Start Simple: Implement Phase 1-3 first (Listening only). Once you can transcribe the meeting to your dashboard, then add the "Speaking" (Interpretation) feature.
