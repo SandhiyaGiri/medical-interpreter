@@ -1,0 +1,8 @@
+{
+  "name": "MedInterpret Live",
+  "description": "A professional medical interpretation application providing real-time voice-to-voice translation between English-speaking doctors and patients speaking various Indian languages.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
